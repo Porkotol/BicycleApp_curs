@@ -1,0 +1,54 @@
+﻿<AuthorizeView>
+    <Authorized>
+        @if (context.User.IsInRole(SD.Role_Admin) && context.User.IsInRole(SD.Role_Manager))
+        {
+            @if(AdminAndManagerView == null)
+            {
+                @AdminView
+                @ManagerView
+            } else
+            {
+                @AdminAndManagerView
+            }
+        } else
+        {
+            @if (context.User.IsInRole(SD.Role_Admin))
+            {
+                @AdminView
+            }
+            else if (context.User.IsInRole(SD.Role_Manager))
+            {
+                @ManagerView
+            }
+            else
+            {
+                @AuthorizedView
+            }
+        }
+    </Authorized>
+    <NotAuthorized>
+        @if (DefaultSameToAuthorized)
+        {
+            @AuthorizedView
+        } else
+        {
+            @DefaultView
+        }
+    </NotAuthorized>
+</AuthorizeView>
+
+@code {
+    [Parameter]
+    public bool DefaultSameToAuthorized { get; set; } = true;
+
+    [Parameter]
+    public RenderFragment AdminAndManagerView { get; set; }
+    [Parameter]
+    public RenderFragment AdminView { get; set; }
+    [Parameter]
+    public RenderFragment ManagerView { get; set; }
+    [Parameter]
+    public RenderFragment AuthorizedView { get; set; }
+    [Parameter]
+    public RenderFragment DefaultView { get; set; }
+}

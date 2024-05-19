@@ -1,0 +1,445 @@
+﻿@page "/bicycleUpdate/{QueryId:int}"
+@using Microsoft.EntityFrameworkCore
+@using System.Security.Claims;
+@inject ApplicationDbContext _dbContext
+@inject UserManager<AppUser> _userManager
+@inject AuthenticationStateProvider _authState
+@inject NavigationManager _navManager
+@inject NotificationService _notifications
+@inject ILoginBarNotifyService _notifyService
+@inject IRentalContractService _rentalUpdateService
+@inject IFileUploadService _fileService
+
+<style>
+
+    .rz-body {
+        align-items: @(isLoading ? "center" : "baseline");
+        justify-content: @(isLoading ? "center" : "start");
+    }
+
+    .rz-p-4 {
+        width: @(isLoading ? "" : "100%")
+    }
+
+    .rz-text-body1 {
+        margin-bottom: 20px;
+    }
+
+</style>
+<RadzenNotification style="right: 20vw; top: 80px"></RadzenNotification>
+
+@if (isLoading)
+{
+    <RadzenIcon Icon="sync" class="rotate-icon" />
+}
+else
+{
+    @if(bicycle.Parking.Owner_Id != Manager.Id)
+    {
+        <RadzenText>Ви не можете редагувати цей велосипед</RadzenText>
+    } else
+    {
+        <div class="w-100 d-flex justify-content-between">
+            <div class="col-8 d-grid m-0 p-0">
+                <RadzenStack Orientation="Orientation.Vertical">
+                    <div class="row">
+                        <div class="d-flex justify-content-center">
+                            <RadzenStack Orientation="Orientation.Vertical">
+                                <RadzenImage Style="max-height: 500px;" Path="@bicycle.ImageUrl">
+                                </RadzenImage>
+                                <InputFile style="width: 100%;" OnChange="HandleImageUpload"></InputFile>
+                            </RadzenStack>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <RadzenStack Orientation="Orientation.Horizontal" class="w-100 m-0 p-0" JustifyContent="JustifyContent.SpaceBetween" Wrap="FlexWrap.Wrap">
+                            <RadzenStack Orientation="Orientation.Vertical" AlignItems="AlignItems.Start" Gap="10px">
+                                <RadzenText TextStyle="TextStyle.Overline">Ім'я</RadzenText>
+                                <RadzenTextBox class="p-0 p-lg-1" @bind-Value="@bicycle.Name" />
+                            </RadzenStack>
+
+                            <RadzenStack Orientation="Orientation.Vertical" AlignItems="AlignItems.Start" Gap="10px">
+                                <RadzenText TextStyle="TextStyle.Overline">Тип</RadzenText>
+                                <RadzenDropDown @bind-Value="bicycle.Type_Id" Name="BicycleType" Data="@types" ValueProperty="Id" Style="width:100%; display: block;">
+                                    <Template>
+                                        @context.Name
+                                    </Template>
+                                </RadzenDropDown>
+                            </RadzenStack>
+
+                            <RadzenStack Orientation="Orientation.Vertical" AlignItems="AlignItems.Start" Gap="10px">
+                                <RadzenText TextStyle="TextStyle.Overline">Вага велосипеду</RadzenText>
+                                <RadzenNumeric Name="Weight" class="p-0 p-lg-1" style="width: 150px;" @bind-Value="@bicycle.Weight" Min="0" />
+                            </RadzenStack>
+
+                            <RadzenStack Orientation="Orientation.Vertical" AlignItems="AlignItems.Start" Gap="10px">
+                                <RadzenText TextStyle="TextStyle.Overline">Максимальна дозволена вага</RadzenText>
+                                <RadzenNumeric class="p-0 p-lg-1" style="width: 150px;" @bind-Value="@bicycle.MaxAllowedWeight" Min="0" />
+                            </RadzenStack>
+
+                            <RadzenStack Orientation="Orientation.Vertical" AlignItems="AlignItems.Start" Gap="10px">
+                                <RadzenText TextStyle="TextStyle.Overline">Максимальна швидкість </RadzenText>
+                                <RadzenNumeric class="p-0 p-lg-1" style="width: 150px;" @bind-Value="@bicycle.MaxSpeed" Min="0" />
+                            </RadzenStack>
+                        </RadzenStack>
+                    </div>
+                    <div class="row">
+                        <RadzenText TextStyle="TextStyle.Overline">Опис</RadzenText>
+                        <RadzenTextArea @bind-Value="@bicycle.Description"></RadzenTextArea>
+                    </div>
+                </RadzenStack>
+            </div>
+            <div class="col-3" style="max-height: 85vh;">
+                <RadzenStack Orientation="Orientation.Vertical" class="w-100">
+
+                    <RadzenStack class="w-100" Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" JustifyContent="JustifyContent.Right">
+                        <RadzenButton Icon="check" ButtonStyle="ButtonStyle.Success" Click="@SaveBicycle" />
+                        <RadzenButton Icon="close" ButtonStyle="ButtonStyle.Light" Click="@RedirectToInfoPage" />
+                        <RadzenButton Icon="delete" ButtonStyle="ButtonStyle.Danger" Click="@DeleteBicycle" />
+                    </RadzenStack>
+
+                    <RadzenText TextStyle="TextStyle.Overline">Ціни</RadzenText>
+                    <RadzenButton ButtonStyle="ButtonStyle.Primary" Icon="add" Click="@InsertRow" Disabled="@(editMode == DataGridEditMode.Single && offersToInsert.Count() > 0)" />
+                    <div class="overflow-scroll" style="max-height: 45vh;">
+                        <RadzenDataGrid @ref="offersGrid" AllowAlternatingRows="false" AllowFiltering="true" PageSize="5" AllowSorting="true" EditMode="@editMode" Data="@offers" TItem="RentalOffer" RowUpdate="@OnUpdateRow" RowCreate="@OnCreateRow" Sort="@Reset" Page="@Reset" Filter="@Reset">
+                            <Columns>
+
+                                <RadzenDataGridColumn Property="RentalTimeInMinutes" Title="Хвилин" Filterable="false">
+                                    <EditTemplate Context="offer">
+                                        <RadzenNumeric @bind-Value="offer.RentalTimeInMinutes" Style="width:100%; display: block" Name="RentalTimeInMinutes" />
+                                        <RadzenNumericRangeValidator Text="Значення має бути більше 0" Style="z-index: 999;" Popup="true" Component="RentalTimeInMinutes" Min="1"></RadzenNumericRangeValidator>
+                                    </EditTemplate>
+                                </RadzenDataGridColumn>
+
+                                <RadzenDataGridColumn Property="Price" Title="Ціна" Filterable="false">
+                                    <EditTemplate Context="offer">
+                                        <RadzenNumeric @bind-Value="offer.Price" Style="width:100%; display: block" Name="Price" />
+                                        <RadzenNumericRangeValidator Text="Значення має бути більше 0" Style="z-index: 999;" Popup="true" Component="Price" Min="1"></RadzenNumericRangeValidator>
+                                    </EditTemplate>
+                                </RadzenDataGridColumn>
+
+                                <RadzenDataGridColumn Context="bicycle" Filterable="false" Sortable="false" TextAlign="TextAlign.Left" Frozen="true" FrozenPosition="FrozenColumnPosition.Right" Width="100px">
+                                    <Template Context="bicycle">
+                                        <RadzenButton Icon="edit" ButtonStyle="ButtonStyle.Light" Variant="Variant.Flat" Size="ButtonSize.Small" Click="@(args => EditRow(bicycle))" @onclick:stopPropagation="true">
+                                        </RadzenButton>
+                                        <RadzenButton ButtonStyle="ButtonStyle.Danger" Icon="delete" Variant="Variant.Flat" Shade="Shade.Lighter" Size="ButtonSize.Small" class="my-1 ms-1" Click="@(args => DeleteRow(bicycle))" @onclick:stopPropagation="true">
+                                        </RadzenButton>
+                                    </Template>
+                                    <EditTemplate Context="bicycle">
+                                        <RadzenButton Icon="check" ButtonStyle="ButtonStyle.Success" Variant="Variant.Flat" Size="ButtonSize.Small" Click="@((args) => SaveRow(bicycle))">
+                                        </RadzenButton>
+                                        <RadzenButton Icon="close" ButtonStyle="ButtonStyle.Light" Variant="Variant.Flat" Size="ButtonSize.Small" class="my-1 ms-1" Click="@((args) => CancelEdit(bicycle))">
+                                        </RadzenButton>
+                                    </EditTemplate>
+                                </RadzenDataGridColumn>
+                            </Columns>
+                        </RadzenDataGrid>
+                    </div>
+
+                    <RadzenText TextStyle="TextStyle.Overline">Паркінг</RadzenText>
+                    <RadzenDropDown @bind-Value="bicycle.Parking_Id" Name="Parking" Data="@parkings" ValueProperty="Id" Style="width:100%; display: block;">
+                        <Template>
+                            @context.StreetAdress
+                        </Template>
+                    </RadzenDropDown>
+                </RadzenStack>
+            </div>
+        </div>
+    }
+}
+
+@code {
+
+    [Parameter]
+    public int QueryId { get; set; }
+
+    private ClaimsPrincipal ContextUser;
+
+    private AppUser Manager;
+
+    private Bicycle bicycle = new();
+    private string OldImageUrl;
+    private int OldParkingId;
+
+    private IEnumerable<Parking> parkings;
+    private IEnumerable<BicycleType> types;
+
+    RadzenDataGrid<RentalOffer> offersGrid;
+    IEnumerable<RentalOffer> offers;
+    DataGridEditMode editMode = DataGridEditMode.Single;
+
+    List<RentalOffer> offersToInsert = new List<RentalOffer>();
+    List<RentalOffer> offersToUpdate = new List<RentalOffer>();
+
+    void Reset()
+    {
+        offersToInsert.Clear();
+        offersToUpdate.Clear();
+    }
+
+    void Reset(RentalOffer rentalOffer)
+    {
+        offersToInsert.Remove(rentalOffer);
+        offersToUpdate.Remove(rentalOffer);
+    }
+
+    async Task EditRow(RentalOffer rentalOffer)
+    {
+        if (editMode == DataGridEditMode.Single && offersToInsert.Count() > 0)
+        {
+            Reset();
+        }
+
+        offersToUpdate.Add(rentalOffer);
+        await offersGrid.EditRow(rentalOffer);
+    }
+
+
+    async Task OnUpdateRow(RentalOffer rentalOffer)
+    {
+        Reset(rentalOffer);
+
+        try
+        {
+            _dbContext.Update(rentalOffer);
+
+            await _dbContext.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex)
+        {
+            await ShowUniqueNotify();
+            await _dbContext.Entry(rentalOffer).ReloadAsync();
+        }
+    }
+
+    async Task SaveRow(RentalOffer rentalOffer)
+    {
+        await offersGrid.UpdateRow(rentalOffer);
+    }
+
+    async Task CancelEdit(RentalOffer rentalOffer)
+    {
+        Reset(rentalOffer);
+
+        offersGrid.CancelEditRow(rentalOffer);
+
+        var offerEntry = _dbContext.Entry(rentalOffer);
+        if (offerEntry.State == EntityState.Modified)
+        {
+            offerEntry.CurrentValues.SetValues(offerEntry.OriginalValues);
+            offerEntry.State = EntityState.Unchanged;
+        }
+    }
+
+    async Task DeleteRow(RentalOffer rentalOffer)
+    {
+        Reset(rentalOffer);
+
+        if (offers.Contains(rentalOffer))
+        {
+
+            _dbContext.Remove<RentalOffer>(rentalOffer);
+
+            await _dbContext.SaveChangesAsync();
+
+            await offersGrid.Reload();
+        }
+        else
+        {
+            offersGrid.CancelEditRow(rentalOffer);
+            await offersGrid.Reload();
+        }
+    }
+
+    async Task InsertRow()
+    {
+        if (editMode == DataGridEditMode.Single)
+        {
+            Reset();
+        }
+
+        var rentalOffer = new RentalOffer();
+        rentalOffer.Bicycle_Id = bicycle.Id;
+        rentalOffer.Bicycle = bicycle;
+
+        offersToInsert.Add(rentalOffer);
+        await offersGrid.InsertRow(rentalOffer);
+    }
+
+    async Task OnCreateRow(RentalOffer rentalOffer)
+    {
+        try
+        {
+            await _dbContext.AddAsync(rentalOffer);
+
+            await _dbContext.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex)
+        {
+            _dbContext.Remove(rentalOffer);
+            await ShowUniqueNotify();
+        }
+
+        offersToInsert.Remove(rentalOffer);
+
+        await offersGrid.Reload();
+    }
+
+    private bool isLoading = true;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            isLoading = true;
+            StateHasChanged();
+
+            await _rentalUpdateService.UpdateContractsAsync();
+
+            bicycle = await _dbContext.Bicycles
+            .Include(b => b.Parking)
+            .Include(b => b.Parking.City)
+            .Include(b => b.BicycleType)
+            .Include(b => b.BicycleRentalOffers)
+            .FirstOrDefaultAsync(b => b.Id == QueryId);
+
+
+            var context = await _authState.GetAuthenticationStateAsync();
+            ContextUser = context.User;
+            Manager = await _dbContext.Users.FirstOrDefaultAsync(u => u.UserName == ContextUser.Identity.Name);
+
+            types = await _dbContext.BicycleTypes.ToListAsync();
+            parkings = await _dbContext.Parkings.Where(p => p.Owner_Id == Manager.Id).ToListAsync();
+
+            OldImageUrl = bicycle.ImageUrl;
+            OldParkingId = bicycle.Parking_Id;
+            offers = bicycle.BicycleRentalOffers;
+
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RedirectToInfoPage()
+    {
+        if (OldImageUrl != bicycle.ImageUrl && !bicycle.ImageUrl.Contains(SD.DefaultImageName))
+        {
+            _fileService.DeleteFile(bicycle.ImageUrl);
+        }
+        _navManager.NavigateTo($"/bicycle/{QueryId}");
+    }
+
+    private async Task SaveBicycle()
+    {
+        if (OldImageUrl != bicycle.ImageUrl && !OldImageUrl.Contains(SD.DefaultImageName))
+        {
+            _fileService.DeleteFile(OldImageUrl);
+        }
+
+        if(await IsMaxLimitReached())
+        {
+            bicycle.Parking_Id = OldParkingId;
+            await _dbContext.SaveChangesAsync();
+            return;
+        }
+        await _dbContext.SaveChangesAsync();
+        _navManager.NavigateTo($"/bicycle/{QueryId}");
+    }
+
+
+    private async Task<bool> IsMaxLimitReached()
+    {
+        var parking = await _dbContext.Parkings.FirstOrDefaultAsync(p => p.Id == bicycle.Parking_Id);
+        await _dbContext.Entry<Parking>(parking).ReloadAsync();
+
+        if (parking != null && parking.CurrentBicyclesAmount >= parking.MaxBicyclesAmount && OldParkingId != bicycle.Parking_Id)
+        {
+            _notifications.Notify(new NotificationMessage
+                {
+                    Duration = 5000,
+                    Style = "width: 500px;",
+                    Severity = NotificationSeverity.Warning,
+                    Summary = "Неможливо виконати дію",
+                    Detail = "Паркінг заповнено, необхідно збільшити максимальну кількість велосипедів.",
+                    Click = args => { _navManager.NavigateTo("/parkingList"); }
+                });
+            return true;
+        }
+        return false;
+    }
+
+    private async Task HandleImageUpload(InputFileChangeEventArgs e)
+    {
+        isLoading = true;
+        try
+        {
+            if (e.GetMultipleFiles().Count() > 0)
+            {
+                foreach (var file in e.GetMultipleFiles())
+                {
+                    System.IO.FileInfo fileInfo = new(file.Name);
+                    if (fileInfo.Extension.ToLower() == ".jpg" ||
+                    fileInfo.Extension.ToLower() == ".png" ||
+                    fileInfo.Extension.ToLower() == ".jpeg" ||
+                    fileInfo.Extension.ToLower() == ".webp")
+                    {
+                        bicycle.ImageUrl = await _fileService.UploadFile(file);
+                    }
+                    else
+                    {
+                        _notifications.Notify(new NotificationMessage
+                            {
+                                Duration = 5000,
+                                Style = "width: 500px;",
+                                Severity = NotificationSeverity.Warning,
+                                Summary = "Не вдалося завантажити файл",
+                                Detail = "Допустимі формати файлу .jpg, .png, .jpeg"
+                            });
+                        isLoading = false;
+                        return;
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _notifications.Notify(new NotificationMessage
+                {
+                    Duration = 5000,
+                    Style = "width: 500px;",
+                    Severity = NotificationSeverity.Warning,
+                    Summary = "Не вдалося завантажити файл",
+                    Detail = "Завеликий розмір файлу!"
+                });
+        }
+        isLoading = false;
+    }
+
+    private async Task DeleteBicycle()
+    {
+        isLoading = true;
+        StateHasChanged();
+
+        if (!bicycle.ImageUrl.Contains(SD.DefaultImageName))
+        {
+            _fileService.DeleteFile(bicycle.ImageUrl);
+        }
+        _dbContext.Remove(bicycle);
+
+        await _dbContext.SaveChangesAsync();
+
+        _navManager.NavigateTo("/");
+    }
+
+    private async Task ShowUniqueNotify()
+    {
+        _notifications.Notify(new NotificationMessage
+            {
+                Duration = 2500,
+                Style = "width: 500px;",
+                Severity = NotificationSeverity.Warning,
+                Summary = "Неможливо створити ціну",
+                Detail = "Ціни і хвилини не можуть повторюватись"
+            });
+    }
+}

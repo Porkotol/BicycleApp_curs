@@ -1,0 +1,156 @@
+﻿@page "/"
+@page "/bicycles"
+@using Microsoft.EntityFrameworkCore
+@inject ApplicationDbContext _dbContext
+@inject NavigationManager _navManager
+@inject IRentalContractService _rentalUpdateService
+
+<style>
+    .rz-grid {
+        display: flex;
+        width: 100%;
+    }
+
+    .rz-grid-table {
+        table-layout: fixed;
+        width: 100%;
+    }
+
+    .rz-body {
+        align-items: @(isLoading ? "center" : "baseline");
+        justify-content: @(isLoading ? "center" : "start");
+    }
+
+    .rz-p-4 {
+        width: @(isLoading ? "" : "75%")
+    }
+</style>
+
+@if(isLoading)
+{
+    <RadzenIcon Icon="sync" class="rotate-icon"/>
+}
+else
+{
+    if (bicycles == null || bicycles.Count() == 0)
+    {
+        <RadzenText>
+            Ще не додано жодного велоспеду
+        </RadzenText>
+    }
+    else
+    {
+        <RadzenDataList WrapItems="true" AllowPaging="false" Data="@bicycles" TItem="Bicycle">
+            <Template Context="bicycle">
+                <RadzenCard Style="width:500px; cursor:pointer;" @onclick=@(() => RedirectToBicyclePage(bicycle.Id))>
+                    <RadzenStack Orientation="Orientation.Vertical" JustifyContent="JustifyContent.SpaceBetween" class="h-100">
+                        @if (bicycle.ImageUrl != null && !string.IsNullOrEmpty(bicycle.ImageUrl))
+                        {
+                            <div>
+                            </div>
+                            <RadzenImage Path="@bicycle?.ImageUrl" Style="width:100%; max-height: 500px;" />
+                        }
+                    <div>
+                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.End" JustifyContent="JustifyContent.SpaceBetween">
+                            <RadzenStack Gap="0">
+                                <RadzenText TextStyle="TextStyle.Body1"><b>@(bicycle?.Name)</b></RadzenText>
+                                <RadzenText TextStyle="TextStyle.Overline" class="rz-display-flex rz-mt-4 rz-mb-0">Тип</RadzenText>
+                                <RadzenText TextStyle="TextStyle.Body1"><b>@(bicycle.BicycleType.Name)</b></RadzenText>
+                            </RadzenStack>
+                            <RadzenStack Gap="0" Orientation="Orientation.Vertical" AlignItems="AlignItems.End">
+                                @if(bicycle.IsBooked)
+                                {
+                                    <RadzenBadge BadgeStyle="BadgeStyle.Dark">
+                                        Зайнятий
+                                    </RadzenBadge>
+                                } else
+                                {
+                                    <RadzenBadge BadgeStyle="BadgeStyle.Info">
+                                        Вільний
+                                    </RadzenBadge>
+                                }
+                                <RadzenText TextStyle="TextStyle.Overline" class="rz-display-flex rz-mt-4 rz-mb-0">Локація</RadzenText>
+                                <RadzenText TextAlign="TextAlign.Right" TextStyle="TextStyle.Body2"><b>@(bicycle?.Parking?.City?.Name), @(bicycle?.Parking?.StreetAdress)</b></RadzenText>
+                            </RadzenStack>
+                        </RadzenStack>
+                        <hr style="border: none; background-color: rgba(0,0,0,.6); height: 1px; margin: 1rem 0;" />
+                        <RadzenRow>
+                            <RadzenColumn Size="7" Class="rz-text-truncate">
+                                <div class="d-flex flex-column">
+                                    <RadzenText TextStyle="TextStyle.Overline">
+                                        Максимальна вага
+                                    </RadzenText>
+                                    <RadzenText TextStyle="TextStyle.Body1">@(bicycle.MaxAllowedWeight)</RadzenText>
+                                    </div>
+                                </RadzenColumn>
+                                <RadzenColumn Size="5" Class="rz-text-align-end">
+                                    <div class="d-flex flex-column">
+                                        @if (bicycle.BicycleRentalOffers.Count() > 0)
+                                        {
+                                            <RadzenText TextStyle="TextStyle.Overline">
+                                                Доступні ціни
+                                            </RadzenText>
+                                        <RadzenBadge class="align-self-end" BadgeStyle="bicycle.IsBooked ? BadgeStyle.Dark : BadgeStyle.Info" Text=@(string.Join(" / ",bicycle.BicycleRentalOffers.Select(r => r.Price).Order())) />
+                                        }
+                                    else
+                                    {
+                                        <RadzenText TextStyle="TextStyle.Overline">
+                                            Немає доступних цін
+                                        </RadzenText>
+                                    }
+                                </div>
+                            </RadzenColumn>
+                        </RadzenRow>
+                    </div>
+                    </RadzenStack>
+                </RadzenCard>
+            </Template>
+        </RadzenDataList>
+        <RadzenPager ShowPagingSummary="true" PagingSummaryFormat="@pagingSummaryFormat" HorizontalAlign="HorizontalAlign.Right" Count="count" PageSize="@pageSize" PageNumbersCount="5" PageChanged="@PageChanged" />
+    }
+}
+
+@code {
+    private bool isLoading = true;
+
+    private string pagingSummaryFormat = "Сторінка {0} з {1} (всього {2} велосипедів)";
+    private int pageSize = 12;
+    private int count;
+    private IEnumerable<Bicycle> bicycles;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if(firstRender)
+        {
+            isLoading = true;
+            StateHasChanged();
+            await _rentalUpdateService.UpdateContractsAsync();
+
+            count = await _dbContext.Bicycles.CountAsync();
+            bicycles = await GetBicycles(0, pageSize);
+
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void RedirectToBicyclePage(int id)
+    {
+        _navManager.NavigateTo($"/bicycle/{id}");
+    }
+
+    async Task PageChanged(PagerEventArgs args)
+    {
+        bicycles = await GetBicycles(args.Skip, args.Top);
+    }
+
+    private async Task<IEnumerable<Bicycle>> GetBicycles(int skip, int take)
+    {
+        return await _dbContext.Bicycles
+        .Include((a)=>a.BicycleType)
+        .Include((a)=>a.BicycleRentalOffers)
+        .Include(b => b.Parking)
+        .Include(b => b.Parking.City)
+        .Skip(skip).Take(take).ToListAsync();
+    }
+}

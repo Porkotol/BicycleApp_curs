@@ -1,0 +1,212 @@
+﻿@page "/cityList"
+@using Microsoft.Data.SqlClient;
+@using Microsoft.EntityFrameworkCore
+@inject ApplicationDbContext _dbContext
+@inject NotificationService _notifications
+@attribute [Authorize(Roles = "Admin")]
+
+<style>
+    .rz-grid {
+        display: flex;
+        width: 100%;
+    }
+
+    .rz-grid-table {
+        table-layout: fixed;
+        width: 100%; 
+    }
+
+    .rz-body {
+        align-items: @(isLoading ? "center" : "baseline")
+    }
+</style>
+
+<RadzenNotification></RadzenNotification>
+@if(isLoading)
+{
+    <RadzenIcon Icon="sync" class="rotate-icon" />
+} else
+{
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="10px" class="mt-2 mb-4">
+        <RadzenButton ButtonStyle="ButtonStyle.Primary" Icon="add_circle_outline" Text="Створити місто" Click="@InsertRow" Disabled="@(editMode == DataGridEditMode.Single && ordersToInsert.Count() > 0)" />
+    </RadzenStack>
+
+    <RadzenDataGrid @ref="citiesGrid" AllowAlternatingRows="false" AllowFiltering="true" AllowPaging="true" PageSize="10" AllowSorting="true" EditMode="@editMode"
+                    Data="@cities" TItem="City" RowUpdate="@OnUpdateRow" RowCreate="@OnCreateRow" Sort="@Reset" Page="@Reset" Filter="@Reset">
+        <Columns>
+            <RadzenDataGridColumn Property="Id" Title="ID" Width="60px" Frozen="true" Filterable="false" />
+            <RadzenDataGridColumn Property="Name" Title="Назва міста" MinWidth="150px">
+                <EditTemplate Context="city">
+                    <RadzenTextBox @bind-Value="city.Name" Style="width:200px; display: block" Name="CityName" />
+                    <RadzenRequiredValidator Text="Необхідно ввести назву міста" Component="CityName" Popup="true" />
+                </EditTemplate>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn Context="city" Filterable="false" Sortable="false" TextAlign="TextAlign.Left" Frozen="true" FrozenPosition="FrozenColumnPosition.Right">
+                <Template Context="city">
+                    <RadzenButton Icon="edit" ButtonStyle="ButtonStyle.Light" Variant="Variant.Flat" Size="ButtonSize.Medium" Click="@(args => EditRow(city))" @onclick:stopPropagation="true">
+                    </RadzenButton>
+                    <RadzenButton ButtonStyle="ButtonStyle.Danger" Icon="delete" Variant="Variant.Flat" Shade="Shade.Lighter" Size="ButtonSize.Medium" class="my-1 ms-1" Click="@(args => DeleteRow(city))" @onclick:stopPropagation="true">
+                    </RadzenButton>
+                </Template>
+                <EditTemplate Context="city">
+                    <RadzenButton Icon="check" ButtonStyle="ButtonStyle.Success" Variant="Variant.Flat" Size="ButtonSize.Medium" Click="@((args) => SaveRow(city))">
+                    </RadzenButton>
+                    <RadzenButton Icon="close" ButtonStyle="ButtonStyle.Light" Variant="Variant.Flat" Size="ButtonSize.Medium" class="my-1 ms-1" Click="@((args) => CancelEdit(city))">
+                    </RadzenButton>
+                    <RadzenButton ButtonStyle="ButtonStyle.Danger" Icon="delete" Variant="Variant.Flat" Shade="Shade.Lighter" Size="ButtonSize.Medium" class="my-1 ms-1" Click="@(args => DeleteRow(city))">
+                    </RadzenButton>
+                </EditTemplate>
+            </RadzenDataGridColumn>
+        </Columns>
+    </RadzenDataGrid>
+}
+
+@code {
+    private bool isLoading = true;
+
+    RadzenDataGrid<City> citiesGrid;
+    IEnumerable<City> cities;
+
+    DataGridEditMode editMode = DataGridEditMode.Single;
+
+    List<City> ordersToInsert = new List<City>();
+    List<City> ordersToUpdate = new List<City>();
+
+    void Reset()
+    {
+        ordersToInsert.Clear();
+        ordersToUpdate.Clear();
+    }
+
+    void Reset(City city)
+    {
+        ordersToInsert.Remove(city);
+        ordersToUpdate.Remove(city);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if(firstRender)
+        {
+            isLoading = true;
+            StateHasChanged();
+            cities = await _dbContext.Cities.ToListAsync();
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    async Task EditRow(City city)
+    {
+        if (editMode == DataGridEditMode.Single && ordersToInsert.Count() > 0)
+        {
+            Reset();
+        }
+
+        ordersToUpdate.Add(city);
+        await citiesGrid.EditRow(city);
+    }
+
+    async Task OnUpdateRow(City city)
+    {
+        try
+        {
+            Reset(city);
+
+            _dbContext.Update(city);
+
+            await _dbContext.SaveChangesAsync();
+
+        }
+        catch (DbUpdateException ex)
+        {
+            await ShowUniqueNotify();
+            await _dbContext.Entry(city).ReloadAsync();
+        }
+    }
+
+    async Task SaveRow(City city)
+    {
+        await citiesGrid.UpdateRow(city);
+    }
+
+    void CancelEdit(City city)
+    {
+        Reset(city);
+
+        citiesGrid.CancelEditRow(city);
+
+        var orderEntry = _dbContext.Entry(city);
+        if (orderEntry.State == EntityState.Modified)
+        {
+            orderEntry.CurrentValues.SetValues(orderEntry.OriginalValues);
+            orderEntry.State = EntityState.Unchanged;
+        }
+    }
+
+    async Task DeleteRow(City city)
+    {
+        Reset(city);
+
+        if (cities.Contains(city))
+        {
+            _dbContext.Remove<City>(city);
+
+            await _dbContext.SaveChangesAsync();
+
+            cities = await _dbContext.Cities.ToListAsync();
+            await citiesGrid.Reload();
+        }
+        else
+        {
+            citiesGrid.CancelEditRow(city);
+            await citiesGrid.Reload();
+        }
+    }
+
+    async Task InsertRow()
+    {
+        if (editMode == DataGridEditMode.Single)
+        {
+            Reset();
+        }
+
+        var city = new City();
+        ordersToInsert.Add(city);
+        await citiesGrid.InsertRow(city);
+    }
+
+    async Task OnCreateRow(City city)
+    {
+        try
+        {
+            await _dbContext.AddAsync(city);
+
+            await _dbContext.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex)
+        {
+            _dbContext.Remove(city);
+            await ShowUniqueNotify();
+        }
+
+        ordersToInsert.Remove(city);
+
+        cities = await _dbContext.Cities.ToListAsync();
+
+        await citiesGrid.Reload();
+    }
+
+    private async Task ShowUniqueNotify()
+    {
+        _notifications.Notify(new NotificationMessage
+            {
+                Duration = 2000,
+                Style = "width: 500px;",
+                Severity = NotificationSeverity.Warning,
+                Summary = "Неможливо створити місто",
+                Detail = "Таке місто вже існує"
+            });
+    }
+
+}

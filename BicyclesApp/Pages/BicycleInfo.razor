@@ -1,0 +1,296 @@
+﻿@page "/bicycle/{QueryId:int}"
+@using BicyclesApp.Service.IService;
+@using Microsoft.EntityFrameworkCore
+@using System.Security.Claims;
+@inject ApplicationDbContext _dbContext
+@inject UserManager<AppUser> _userManager
+@inject AuthenticationStateProvider _authState
+@inject NavigationManager _navManager
+@inject NotificationService _notifications
+@inject ILoginBarNotifyService _notifyService
+@inject IRentalContractService _rentalUpdateService
+
+<style>
+
+    .rz-body {
+        align-items: @(isLoading ? "center" : "baseline");
+        justify-content: @(isLoading ? "center" : "start");
+    }
+
+    .rz-p-4 {
+        width: @(isLoading ? "" : "100%")
+    }
+
+    .rz-text-body1 {
+        margin-bottom: 20px;
+    }
+
+</style>
+<RadzenNotification style="right: 20vw; top: 80px"></RadzenNotification>
+@if (isLoading)
+{
+    <RadzenIcon Icon="sync" class="rotate-icon" />
+}
+else
+{
+    <div class="w-100 d-flex justify-content-between">
+        <div class="col-8 d-grid m-0 p-0">
+            <div class="row">
+                <div class="d-flex justify-content-center">
+                    @if (bicycle.ImageUrl != null && !string.IsNullOrEmpty(bicycle.ImageUrl))
+                    {
+                        <RadzenImage Style="max-height: 50vh; margin-bottom: 5vh" Path="@bicycle.ImageUrl">
+                        </RadzenImage>
+                    }
+                </div>
+            </div>
+            <div class="row">
+                <RadzenStack Orientation="Orientation.Horizontal" class="w-100" JustifyContent="JustifyContent.SpaceBetween" Wrap="FlexWrap.Wrap">
+                    <RadzenStack Orientation="Orientation.Vertical" AlignItems="AlignItems.Start" Gap="10px">
+                        <RadzenText TextStyle="TextStyle.Overline">Ім'я</RadzenText>
+                        <RadzenText TextStyle="TextStyle.Body1"><b>@bicycle?.Name</b></RadzenText>
+                    </RadzenStack>
+
+                    <RadzenStack Orientation="Orientation.Vertical" AlignItems="AlignItems.Start" Gap="10px">
+                        <RadzenText TextStyle="TextStyle.Overline">Тип</RadzenText>
+                        <RadzenText TextStyle="TextStyle.Body1"><b>@bicycle?.BicycleType?.Name</b></RadzenText>
+                    </RadzenStack>
+
+                    <RadzenStack Orientation="Orientation.Vertical" AlignItems="AlignItems.Start" Gap="10px">
+                        <RadzenText TextStyle="TextStyle.Overline">Вага велосипеду</RadzenText>
+                        <RadzenText TextStyle="TextStyle.Body1">
+                            <b>
+                                @(bicycle?.Weight != null ? bicycle?.Weight + " кг." : "Не визначено")
+                            </b>
+                        </RadzenText>
+                    </RadzenStack>
+
+                    <RadzenStack Orientation="Orientation.Vertical" AlignItems="AlignItems.Start" Gap="10px">
+                        <RadzenText TextStyle="TextStyle.Overline">Максимальна дозволена вага</RadzenText>
+                        <RadzenText TextStyle="TextStyle.Body1">
+                            <b>
+                                @(bicycle?.MaxAllowedWeight) кг.
+                            </b>
+                        </RadzenText>
+                    </RadzenStack>
+
+                    <RadzenStack Orientation="Orientation.Vertical" AlignItems="AlignItems.Start" Gap="10px">
+                        <RadzenText TextStyle="TextStyle.Overline">Максимальна швидкість </RadzenText>
+                        <RadzenText TextStyle="TextStyle.Body1">
+                            <b>
+                                @(bicycle?.MaxSpeed) км/год.
+                            </b>
+                        </RadzenText>
+                    </RadzenStack>
+                </RadzenStack>
+            </div>
+            <div class="row">
+                <RadzenText TextStyle="TextStyle.Overline">Опис</RadzenText>
+                @if (bicycle.Description != null && !string.IsNullOrEmpty(bicycle.Description))
+                {
+                    <RadzenText TextStyle="TextStyle.Body1" Text="@bicycle?.Description"></RadzenText>
+                }
+                else
+                {
+                    <RadzenText TextStyle="TextStyle.Body1" Text="Опис відсутній"></RadzenText>
+                }
+            </div>
+        </div>
+        <div class="col-3" style="max-height: 85vh;">
+
+            <RadzenStack Orientation="Orientation.Vertical">
+
+                <RadzenStack class="w-100" Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" JustifyContent="JustifyContent.SpaceBetween">
+                    @if (bicycle.IsBooked)
+                    {
+                        <RadzenBadge BadgeStyle="BadgeStyle.Dark"><b>Зайнятий</b></RadzenBadge>
+                    }
+                    else
+                    {
+                        <RadzenBadge BadgeStyle="BadgeStyle.Success"><b>Вільний</b></RadzenBadge>
+                    }
+                    @if (ContextUser.IsInRole(SD.Role_Manager) && bicycle.Parking.Owner_Id == Renter.Id)
+                    {
+                        <RadzenButton Icon="edit" Click="@RedirectToUpdatePage" />
+                    }
+                </RadzenStack>
+
+                @if (bicycle.BicycleRentalOffers.Count() > 0)
+                {
+                    @if (!IsAuthorized)
+                    {
+                        <RadzenText TextStyle="TextStyle.Overline">
+                            Для оренди необхідно увійти в акаунт
+                        </RadzenText>
+                    }
+                    else
+                    {
+                        @if (CurrentContract == null)
+                        {
+                            <RadzenText TextStyle="TextStyle.Overline">
+                                Орендувати за цінами:
+                            </RadzenText>
+
+                        }
+                    }
+
+                    @if (CurrentContract != null)
+                    {
+                        <RadzenText TextStyle="TextStyle.Body1">
+                            Ваша оренда закінчиться о @CurrentContract.RentedToTime
+                        </RadzenText>
+                        <RadzenButton ButtonStyle="ButtonStyle.Danger" Text="Скасувати оренду" Click="@CloseRentalContract">
+
+                        </RadzenButton>
+                    }
+                    else
+                    {
+                        <div class="overflow-scroll" style="max-height: 50vh;">
+                            <RadzenDataList Data="@bicycle?.BicycleRentalOffers" WrapItems="true" TItem="RentalOffer" Style="margin-bottom: 10px;">
+                                <Template Context="rentalOffer">
+                                    <RadzenStack Wrap="FlexWrap.Wrap" Style="margin-left: 0px;">
+                                        <RadzenText TextStyle="TextStyle.Overline">
+                                            @rentalOffer.RentalTimeInMinutes хв.
+                                        </RadzenText>
+                                        @if (bicycle.IsBooked)
+                                        {
+                                            <RadzenButton Disabled="true" ButtonStyle="ButtonStyle.Info">
+                                                @rentalOffer.Price UAH
+                                            </RadzenButton>
+                                        }
+                                        else
+                                        {
+                                            <RadzenButton Disabled="@(!IsAuthorized)" ButtonStyle="ButtonStyle.Info" Click="@(() => RentBicycle(rentalOffer))">
+                                                @rentalOffer.Price UAH
+                                            </RadzenButton>
+                                        }
+                                    </RadzenStack>
+                                </Template>
+                            </RadzenDataList>
+                        </div>
+                    }
+
+                }
+                else
+                {
+                    <RadzenText TextStyle="TextStyle.Body1"><b>Немає доступних цін</b></RadzenText>
+                }
+
+                <RadzenText TextStyle="TextStyle.Overline">Місто</RadzenText>
+                <RadzenText TextStyle="TextStyle.Body1"><b>@bicycle?.Parking?.City?.Name</b></RadzenText>
+                <RadzenText TextStyle="TextStyle.Overline">Адреса</RadzenText>
+                <RadzenText TextStyle="TextStyle.Body1"><b>Вул. @bicycle?.Parking?.StreetAdress</b></RadzenText>
+                <RadzenText TextStyle="TextStyle.Overline">Всього взято в оренду</RadzenText>
+                <RadzenText TextStyle="TextStyle.Body1"><b>@bicycle?.BookingNumber</b></RadzenText>
+            </RadzenStack>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public int QueryId { get; set; }
+
+    private ClaimsPrincipal ContextUser;
+    private bool IsAuthorized;
+
+    private RentalContract CurrentContract;
+    private AppUser Renter;
+
+    private Bicycle bicycle = new();
+
+    private bool isLoading = true;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if(firstRender)
+        {
+            isLoading = true;
+            StateHasChanged();
+
+            await _rentalUpdateService.UpdateContractsAsync();
+
+            bicycle = await _dbContext.Bicycles
+            .Include(b => b.Parking)
+            .Include(b => b.Parking.City)
+            .Include(b => b.BicycleType)
+            .Include(b => b.BicycleRentalOffers)
+            .FirstOrDefaultAsync(b => b.Id == QueryId);
+
+            var context = await _authState.GetAuthenticationStateAsync();
+            ContextUser = context.User;
+            IsAuthorized = ContextUser.Identity.IsAuthenticated;
+
+            if(IsAuthorized)
+            {
+                Renter = await _dbContext.Users.FirstOrDefaultAsync(u => u.UserName == ContextUser.Identity.Name);
+
+                await LoadCurrentContract();
+
+            }
+
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadCurrentContract()
+    {
+        CurrentContract = await _dbContext.RentalContracts
+                    .Where(c => c.RentalOffer.Bicycle_Id == bicycle.Id
+                        && c.Renter.Id == Renter.Id
+                        && c.RentalStatus.Equals(SD.RentalStatus_Active))
+                        .FirstOrDefaultAsync();
+    }
+
+    private async Task RentBicycle(RentalOffer rentalOffer)
+    {
+        if(Renter.Balance < rentalOffer.Price)
+        {
+            _notifications.Notify(new NotificationMessage
+                {
+                    Duration = 5000,
+                    Style = "width: 500px;",
+                    Severity = NotificationSeverity.Warning,
+                    Summary = "На балансі недостатньо коштів",
+                    Detail = "Зверніться до адміністратора для поповнення балансу"
+                });
+            return;
+        }
+        await _dbContext.RentalContracts.AddAsync(
+            new RentalContract()
+                {
+                    RenalOffer_Id = rentalOffer.Id,
+                    RentalStatus = SD.RentalStatus_Active,
+                    RentedFromTime = DateTime.Now,
+                    RentedToTime = DateTime.Now.AddMinutes(rentalOffer.RentalTimeInMinutes),
+                    Renter_Id = Renter.Id
+                }
+        );
+
+        bicycle.IsBooked = true;
+        bicycle.BookingNumber++;
+        Renter.Balance -= rentalOffer.Price;
+
+        await _dbContext.SaveChangesAsync();
+
+        await LoadCurrentContract();
+
+        _notifyService.CallRequestRefresh();
+    }
+
+    private async Task CloseRentalContract()
+    {
+        CurrentContract.RentalStatus = SD.RentalStatus_Closed;
+        bicycle.IsBooked = false;
+
+        await _dbContext.SaveChangesAsync();
+
+        CurrentContract = null;
+    }
+
+    private async Task RedirectToUpdatePage()
+    {
+        _navManager.NavigateTo($"/bicycleUpdate/{QueryId}");
+    }
+}

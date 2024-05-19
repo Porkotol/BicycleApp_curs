@@ -1,0 +1,78 @@
+﻿@using System.Security.Claims;
+@using BicyclesApp.Service.IService;
+@inject ApplicationDbContext _dbContext
+@inject AuthenticationStateProvider _authState
+@inject ILoginBarNotifyService _notifyService 
+
+<RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" JustifyContent="JustifyContent.SpaceBetween" Gap="20">
+    <AuthorizeView>
+        <Authorized>
+            <RadzenLabel>
+                <RadzenStack Orientation="Orientation.Horizontal">
+                    <RadzenIcon Icon="account_circle" Style="align-self:center; font-size: 2em;"/>
+                    <RadzenStack Orientation="Orientation.Vertical" Gap="0">
+                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center">
+                            <RadzenLabel>
+                                @Name
+                            </RadzenLabel>
+                        </RadzenStack>
+                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center">
+                            <RadzenText Style="font-size: 12px; margin: 0px;">
+                                Баланс @Balance UAH
+                            </RadzenText>
+                        </RadzenStack>
+                    </RadzenStack>
+                </RadzenStack>
+                
+            </RadzenLabel>
+            <RadzenLink Path="Identity/Account/Logout">
+                <RadzenButton ButtonStyle="ButtonStyle.Dark">
+                    Вийти
+                </RadzenButton>
+            </RadzenLink>
+        </Authorized>
+        <NotAuthorized>
+            <RadzenLink Path="Identity/Account/Register">
+                <RadzenButton ButtonStyle="ButtonStyle.Info">
+                    Зареєструватись
+                </RadzenButton>
+            </RadzenLink>
+            <RadzenLink Path="Identity/Account/Login">
+                <RadzenButton ButtonStyle="ButtonStyle.Dark">
+                    Увійти
+                </RadzenButton>
+            </RadzenLink>
+        </NotAuthorized>
+    </AuthorizeView>
+</RadzenStack>
+
+
+@code {
+    private string Name { get; set; }
+    private double Balance { get; set; }
+    private ClaimsPrincipal ContextUser { get; set; }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if(firstRender)
+        {
+            var context = await _authState.GetAuthenticationStateAsync();
+            ContextUser = context.User;
+            if(ContextUser.Identity.IsAuthenticated)
+            {
+                Name = ContextUser.FindFirst("Name")?.Value;
+                Balance = (await _dbContext.Users.FirstOrDefaultAsync(u => u.UserName == ContextUser.Identity.Name)).Balance;
+            }
+            _notifyService.RefreshRequested += RefreshBalance;
+            StateHasChanged();
+        }
+    }
+
+    private void RefreshBalance()
+    {
+        var user = _dbContext.Users.FirstOrDefault(u => u.UserName == ContextUser.Identity.Name);
+        _dbContext.Entry(user).Reload();
+        Balance = user.Balance;
+        StateHasChanged();
+    }
+}

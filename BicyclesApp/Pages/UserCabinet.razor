@@ -1,0 +1,119 @@
+﻿@page "/userCabinet"
+@using System.Security.Claims;
+@inject ApplicationDbContext _dbContext
+@inject AuthenticationStateProvider _authState
+@inject IRentalContractService _rentalUpdateService
+@inject NavigationManager _navManager
+@attribute [Authorize]
+<style>
+    .rz-grid {
+        display: flex;
+        width: 100%;
+    }
+
+    .rz-grid-table {
+        table-layout: fixed;
+        width: 100%;
+    }
+
+    .rz-body {
+        align-items: @(isLoading ? "center" : "baseline");
+        justify-content: @(isLoading ? "center" : "start");
+    }
+
+    .rz-p-4 {
+        width: @(isLoading ? "" : "100%")
+    }
+</style>
+
+@if (isLoading)
+{
+    <RadzenIcon Icon="sync" class="rotate-icon" />
+} else
+{
+    <RadzenStack Style="width: 100%;" Orientation="Orientation.Vertical" AlignItems="AlignItems.Center">
+        <RadzenIcon Icon="account_circle" Style="font-size: 100px"></RadzenIcon>
+        <RadzenLabel Style="font-size: 2em;">@User?.Name</RadzenLabel>
+        @if (UserContracts?.Count() == 0)
+        {
+            <RadzenText>Ви ще не зробили жодного замовлення</RadzenText>
+        } 
+        else 
+        {
+            <RadzenDataList Data="@UserContracts" TItem="RentalContract" AllowPaging="true" PagerHorizontalAlign="HorizontalAlign.Left" ShowPagingSummary="true" PageSize="5" PagingSummaryFormat="@pagingSummaryFormat">
+                <Template Context="contract">
+                    <RadzenStack Orientation="Orientation.Horizontal" Gap="70px" style="cursor: pointer;"
+                    @onclick=@(() => RedirectToBicycle(contract.RentalOffer.Bicycle.Id))>
+                        <RadzenStack Orientation="Orientation.Vertical" JustifyContent="JustifyContent.Center" AlignItems="AlignItems.Start" Gap="10px">
+                            @if(contract.RentalStatus == SD.RentalStatus_Active)
+                            {
+                                <RadzenBadge BadgeStyle="BadgeStyle.Info"> Активно </RadzenBadge>
+                            }
+                            else if (contract.RentalStatus == SD.RentalStatus_Expired)
+                            {
+                                <RadzenBadge BadgeStyle="BadgeStyle.Dark"> Закінчено </RadzenBadge>
+                            } else
+                            {
+                                <RadzenBadge BadgeStyle="BadgeStyle.Warning"> Відмінено </RadzenBadge>
+                            }
+                            <RadzenText TextStyle="TextStyle.Body1"><b>@(contract?.RentalOffer?.Bicycle?.Name)</b></RadzenText>
+                        </RadzenStack>
+
+                        <RadzenStack Orientation="Orientation.Vertical" Gap="10px">
+                            <RadzenText TextStyle="TextStyle.Overline">Початок аренди</RadzenText>
+                            <RadzenText TextStyle="TextStyle.Body1"><b>@(contract?.RentedFromTime)</b></RadzenText>
+                        </RadzenStack>
+
+                        <RadzenStack Orientation="Orientation.Vertical" Gap="10px">
+                            <RadzenText TextStyle="TextStyle.Overline">Кінець аренди</RadzenText>
+                            <RadzenText TextStyle="TextStyle.Body1"><b>@(contract?.RentedToTime)</b></RadzenText>
+                        </RadzenStack>
+
+                        <RadzenStack Orientation="Orientation.Vertical" Gap="10px" JustifyContent="JustifyContent.Center">
+                            <RadzenText TextStyle="TextStyle.Body1"><b>@(contract?.RentalOffer?.Price) UAH</b></RadzenText>
+                        </RadzenStack>
+                    </RadzenStack>
+                </Template>
+            </RadzenDataList>
+        }
+        </RadzenStack>
+}
+
+@code {
+
+    private bool isLoading { get; set; }
+    private string pagingSummaryFormat = "Сторінка {0} з {1} (всього {2} замовлень)";
+
+    private ClaimsPrincipal ContextUser;
+    private AppUser User;
+    private IEnumerable<RentalContract> UserContracts;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if(firstRender)
+        {
+            isLoading = true;
+            StateHasChanged();
+
+            ContextUser = (await _authState.GetAuthenticationStateAsync()).User;
+
+            User = await _dbContext.Users.FirstOrDefaultAsync(u => u.UserName == ContextUser.Identity.Name);
+            if(User != null)
+                UserContracts = await _dbContext.RentalContracts
+                .Where(c => c.Renter_Id == User.Id)
+                .Include(c => c.RentalOffer.Bicycle)
+                .OrderByDescending(c => c.RentedFromTime)
+                .ToListAsync();
+
+            await _rentalUpdateService.UpdateContractsAsync();
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RedirectToBicycle(int bicycleId)
+    {
+        _navManager.NavigateTo($"/bicycle/{bicycleId}");
+    }
+
+}

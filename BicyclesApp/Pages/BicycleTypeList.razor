@@ -1,0 +1,211 @@
+﻿@page "/bicycleTypeList"
+@using Microsoft.EntityFrameworkCore
+@inject ApplicationDbContext _dbContext
+@inject NotificationService _notifications
+@attribute [Authorize(Roles = "Admin")]
+
+<RadzenNotification></RadzenNotification>
+<style>
+    .rz-grid {
+        display: flex;
+        width: 100%;
+    }
+
+    .rz-grid-table {
+        table-layout: fixed;
+        width: 100%;
+    }
+    
+    .rz-body {
+        align-items: @(isLoading ? "center" : "baseline")
+    }
+</style>
+
+@if(isLoading)
+{
+    <RadzenIcon Icon="sync" class="rotate-icon" />
+} else
+{
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="10px" class="mt-2 mb-4">
+        <RadzenButton ButtonStyle="ButtonStyle.Primary" Icon="add_circle_outline" Text="Додати новий тип" Click="@InsertRow" Disabled="@(editMode == DataGridEditMode.Single && typesToInsert.Count() > 0)" />
+    </RadzenStack>
+
+    <RadzenDataGrid @ref="typesGrid" AllowAlternatingRows="false" AllowFiltering="true" AllowPaging="true" PageSize="10" AllowSorting="true" EditMode="@editMode"
+                    Data="@types" TItem="BicycleType" RowUpdate="@OnUpdateRow" RowCreate="@OnCreateRow" Sort="@Reset" Page="@Reset" Filter="@Reset">
+        <Columns>
+            <RadzenDataGridColumn Property="Id" Title="ID" Width="60px" Frozen="true" Filterable="false" />
+            <RadzenDataGridColumn Property="Name" Title="Назва типу" MinWidth="150px">
+                <EditTemplate Context="bicycleType">
+                    <RadzenTextBox @bind-Value="bicycleType.Name" Style="width:100%; display: block" Name="TypeName" />
+                    <RadzenRequiredValidator Text="Необхідно ввести назву типу" Component="TypeName" Popup="true" />
+                </EditTemplate>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn Context="bicycleType" Filterable="false" Sortable="false" TextAlign="TextAlign.Left" Frozen="true" FrozenPosition="FrozenColumnPosition.Right">
+                <Template Context="bicycleType">
+                    <RadzenButton Icon="edit" ButtonStyle="ButtonStyle.Light" Variant="Variant.Flat" Size="ButtonSize.Medium" Click="@(args => EditRow(bicycleType))" @onclick:stopPropagation="true">
+                    </RadzenButton>
+                    <RadzenButton ButtonStyle="ButtonStyle.Danger" Icon="delete" Variant="Variant.Flat" Shade="Shade.Lighter" Size="ButtonSize.Medium" class="my-1 ms-1" Click="@(args => DeleteRow(bicycleType))" @onclick:stopPropagation="true">
+                    </RadzenButton>
+                </Template>
+                <EditTemplate Context="bicycleType">
+                    <RadzenButton Icon="check" ButtonStyle="ButtonStyle.Success" Variant="Variant.Flat" Size="ButtonSize.Medium" Click="@((args) => SaveRow(bicycleType))">
+                    </RadzenButton>
+                    <RadzenButton Icon="close" ButtonStyle="ButtonStyle.Light" Variant="Variant.Flat" Size="ButtonSize.Medium" class="my-1 ms-1" Click="@((args) => CancelEdit(bicycleType))">
+                    </RadzenButton>
+                    <RadzenButton ButtonStyle="ButtonStyle.Danger" Icon="delete" Variant="Variant.Flat" Shade="Shade.Lighter" Size="ButtonSize.Medium" class="my-1 ms-1" Click="@(args => DeleteRow(bicycleType))">
+                    </RadzenButton>
+                </EditTemplate>
+            </RadzenDataGridColumn>
+        </Columns>
+    </RadzenDataGrid>
+}
+
+
+@code {
+    private bool isLoading = true;
+
+    RadzenDataGrid<BicycleType> typesGrid;
+    IEnumerable<BicycleType> types;
+
+    DataGridEditMode editMode = DataGridEditMode.Single;
+
+    List<BicycleType> typesToInsert = new List<BicycleType>();
+    List<BicycleType> typesToUpdate = new List<BicycleType>();
+
+    void Reset()
+    {
+        typesToInsert.Clear();
+        typesToUpdate.Clear();
+    }
+
+    void Reset(BicycleType bicycleType)
+    {
+        typesToInsert.Remove(bicycleType);
+        typesToUpdate.Remove(bicycleType);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if(firstRender)
+        {
+            isLoading = true;
+            StateHasChanged();
+            types = await _dbContext.BicycleTypes.ToListAsync();
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    async Task EditRow(BicycleType bicycleType)
+    {
+        if (editMode == DataGridEditMode.Single && typesToInsert.Count() > 0)
+        {
+            Reset();
+        }
+
+        typesToUpdate.Add(bicycleType);
+        await typesGrid.EditRow(bicycleType);
+    }
+
+    async Task OnUpdateRow(BicycleType bicycleType)
+    {
+        try
+        {
+            Reset(bicycleType);
+
+            _dbContext.Update(bicycleType);
+
+            await _dbContext.SaveChangesAsync();
+
+        }
+        catch (DbUpdateException ex)
+        {
+            await ShowUniqueNotify();
+            await _dbContext.Entry(bicycleType).ReloadAsync();
+        }
+    }
+
+    async Task SaveRow(BicycleType bicycleType)
+    {
+        await typesGrid.UpdateRow(bicycleType);
+    }
+
+    void CancelEdit(BicycleType bicycleType)
+    {
+        Reset(bicycleType);
+
+        typesGrid.CancelEditRow(bicycleType);
+
+        var orderEntry = _dbContext.Entry(bicycleType);
+        if (orderEntry.State == EntityState.Modified)
+        {
+            orderEntry.CurrentValues.SetValues(orderEntry.OriginalValues);
+            orderEntry.State = EntityState.Unchanged;
+        }
+    }
+
+    async Task DeleteRow(BicycleType bicycleType)
+    {
+        Reset(bicycleType);
+
+        if (types.Contains(bicycleType))
+        {
+            _dbContext.Remove<BicycleType>(bicycleType);
+
+            await _dbContext.SaveChangesAsync();
+
+            types = await _dbContext.BicycleTypes.ToListAsync();
+            await typesGrid.Reload();
+        }
+        else
+        {
+            typesGrid.CancelEditRow(bicycleType);
+            await typesGrid.Reload();
+        }
+    }
+
+    async Task InsertRow()
+    {
+        if (editMode == DataGridEditMode.Single)
+        {
+            Reset();
+        }
+
+        var bicycleType = new BicycleType();
+        typesToInsert.Add(bicycleType);
+        await typesGrid.InsertRow(bicycleType);
+    }
+
+    async Task OnCreateRow(BicycleType bicycleType)
+    {
+        try
+        {
+            await _dbContext.AddAsync(bicycleType);
+
+            await _dbContext.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex)
+        {
+            _dbContext.Remove(bicycleType);
+            await ShowUniqueNotify();
+        }
+
+        typesToInsert.Remove(bicycleType);
+
+        types = await _dbContext.BicycleTypes.ToListAsync();
+
+        await typesGrid.Reload();
+    }
+
+    private async Task ShowUniqueNotify()
+    {
+        _notifications.Notify(new NotificationMessage
+            {
+                Duration = 2000,
+                Style = "width: 500px;",
+                Severity = NotificationSeverity.Warning,
+                Summary = "Неможливо створити тип",
+                Detail = "Такий тип вже існує"
+            });
+    }
+}

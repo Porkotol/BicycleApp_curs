@@ -1,0 +1,131 @@
+﻿@using BicyclesApp.Shared.NavMenu
+@inherits LayoutComponentBase
+@inject AuthenticationStateProvider _authState
+
+<style>
+    :root {
+        --rz-primary: @mainColor;
+    }
+    .rz-header {
+        color: black;
+        box-shadow: none;
+        padding: 10px 50px 10px 10px;
+    }
+    
+    .rz-navigation-item {
+        margin-right: 10px;
+    }
+
+    .rz-navigation-item-wrapper {
+        color: black;
+    }
+
+    .rz-panel-menu .rz-navigation-item-active, .rz-panel-menu .rz-navigation-item-wrapper-active
+    ,
+    .rz-panel-menu .rz-navigation-menu .rz-navigation-item-active, .rz-panel-menu .rz-navigation-menu .rz-navigation-item-wrapper-active {
+        background-color: @(mainColor == "#ecf0f1" ? "#ecf0f1" : HexToCssColor(mainColor, 0.2));
+        color: black;
+    }
+
+    .rz-panel-menu .rz-navigation-item-active .rz-navigation-item-icon, .rz-panel-menu .rz-navigation-item-wrapper-active .rz-navigation-item-icon
+    ,
+    .rz-panel-menu .rz-navigation-menu .rz-navigation-item-active .rz-navigation-item-icon, .rz-panel-menu .rz-navigation-menu .rz-navigation-item-wrapper-active .rz-navigation-item-icon {
+        color: black;
+    }
+</style>
+
+<RadzenLayout>
+    <RadzenHeader>
+        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" JustifyContent="JustifyContent.SpaceBetween" Gap="0">
+            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" JustifyContent="JustifyContent.SpaceBetween" Gap="10">
+                <RadzenButton ButtonStyle="ButtonStyle.Light" style="background: none; box-shadow: none;" Icon="menu" Click="@(() => sidebar1Expanded = !sidebar1Expanded)" />
+                <RolesAuthView>
+                    <AdminAndManagerView>
+                        Admin та Менеджмент панель
+                    </AdminAndManagerView>
+                    <AdminView>
+                        Admin панель
+                    </AdminView>
+                    <ManagerView>
+                        Менеджмент панель
+                    </ManagerView>
+                    <AuthorizedView>
+                        Оренда велосипедів
+                    </AuthorizedView>
+                </RolesAuthView>
+            </RadzenStack>
+            <LoginBar></LoginBar>
+        </RadzenStack>
+    </RadzenHeader>
+    <RadzenSidebar @bind-Expanded="@sidebar1Expanded">
+        <RadzenPanelMenu Multiple="true">
+            <RolesAuthView DefaultSameToAuthorized="false">
+                <AdminAndManagerView>
+                    <AdminAndManagerNavMenu></AdminAndManagerNavMenu>
+                </AdminAndManagerView>
+                <AdminView>
+                    <AdminNavMenu></AdminNavMenu>
+                </AdminView>
+                <ManagerView>
+                    <ManagerNavMenu></ManagerNavMenu>
+                </ManagerView>
+                <AuthorizedView>
+                    <CustomerNavMenu></CustomerNavMenu>
+                </AuthorizedView>
+                <DefaultView>
+                    <DefaultNavMenu></DefaultNavMenu>
+                </DefaultView>
+            </RolesAuthView>
+        </RadzenPanelMenu>
+    </RadzenSidebar>
+    <RadzenBody>
+        <div class="rz-p-4">
+            @Body
+        </div>
+    </RadzenBody>
+</RadzenLayout>
+
+@code {
+
+    private string mainColor { get; set; }
+
+    bool sidebar1Expanded = true;
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        var context = await _authState.GetAuthenticationStateAsync();
+        var user = context.User;
+
+        if (user.IsInRole(SD.Role_Admin) && user.IsInRole(SD.Role_Manager))
+        {
+            mainColor = "#0be881";
+        } else if (user.IsInRole(SD.Role_Admin))
+        {
+            mainColor = "#6a89cc";
+        }
+        else if (user.IsInRole(SD.Role_Manager))
+        {
+            mainColor = "#feca57";
+        }
+        else
+        {
+            mainColor = "#ecf0f1";
+        }
+    }
+
+    private string HexToCssColor(string hexColor, double transparency)
+    {
+        // Remove the '#' if present
+        if (hexColor.StartsWith("#"))
+            hexColor = hexColor.Substring(1);
+
+        // Convert hex to RGB
+        int red = Convert.ToInt32(hexColor.Substring(0, 2), 16);
+        int green = Convert.ToInt32(hexColor.Substring(2, 2), 16);
+        int blue = Convert.ToInt32(hexColor.Substring(4, 2), 16);
+
+        // Convert RGB to CSS rgba format with transparency
+        return $"rgba({red}, {green}, {blue}, {transparency})";
+    }
+}

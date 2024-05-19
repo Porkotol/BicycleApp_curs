@@ -1,0 +1,214 @@
+﻿@page "/userList"
+@inject UserManager<AppUser> _userManager
+@attribute [Authorize(Roles = "Admin")]
+@inject AuthenticationStateProvider _authState
+@inject ApplicationDbContext _dbContext
+@inject NotificationService _notifications
+@inject NavigationManager _navManager
+@inject ILoginBarNotifyService _loginBarNotify
+
+<style>
+    .rz-body {
+        align-items: @(isLoading ? "center" : "baseline")
+    }
+</style>
+
+<RadzenNotification />
+@if(isLoading)
+{
+    <RadzenIcon Icon="sync" class="rotate-icon" />
+} else
+{
+    <RadzenDataGrid @ref="usersGrid" AllowAlternatingRows="false" AllowFiltering="true" AllowPaging="true" PageSize="10" AllowSorting="true"
+                    Data="@usersDto" TItem="AppUserDTO" RowUpdate="@SaveRow" Sort="@Reset" Page="@Reset" Filter="@Reset">
+        <Columns>
+            <RadzenDataGridColumn Property="Id" Title="ID" Width="60px" Frozen="true" Filterable="false" />
+
+            <RadzenDataGridColumn Context="user" Property="Name" Title="Ім'я" MinWidth="150px">
+                <Template>
+                    @user.Name
+                </Template>
+            </RadzenDataGridColumn>
+
+            <RadzenDataGridColumn Context="user" Property="Email" Title="Пошта" MinWidth="150px">
+                <Template>
+                    @user.Email
+                </Template>
+            </RadzenDataGridColumn>
+
+            <RadzenDataGridColumn Property="Balance" Title="Баланс">
+                <EditTemplate Context="user">
+                    <RadzenNumeric @bind-Value="user.Balance" Name="BicycleMaxWeight" Style="width:100%; display: block" Min="0" />
+                </EditTemplate>
+            </RadzenDataGridColumn>
+
+            <RadzenDataGridColumn Context="user" Filterable="false" Sortable="false" TextAlign="TextAlign.Left" Frozen="true" Width="115px">
+                <Template Context="user">
+                    <RadzenButton Icon="edit" ButtonStyle="ButtonStyle.Light" Variant="Variant.Flat" Size="ButtonSize.Medium" Click="@(args => EditRow(user))" @onclick:stopPropagation="true">
+                    </RadzenButton>
+                </Template>
+                <EditTemplate Context="user">
+                    <RadzenButton Icon="check" ButtonStyle="ButtonStyle.Success" Variant="Variant.Flat" Size="ButtonSize.Medium" Click="@((args) => SaveRow(user))">
+                    </RadzenButton>
+                    <RadzenButton Icon="close" ButtonStyle="ButtonStyle.Light" Variant="Variant.Flat" Size="ButtonSize.Medium" class="my-1 ms-1" Click="@((args) => CancelEdit(user))">
+                    </RadzenButton>
+                </EditTemplate>
+            </RadzenDataGridColumn>
+
+            <RadzenDataGridColumn Context="user" Filterable="false" Sortable="false" TextAlign="TextAlign.Left" Frozen="true">
+                <Template>
+                    <RadzenCheckBox @bind-Value=@user.IsManager TValue="bool" Change=@(args => ChangeManagerRole(user, args))/>
+                    <RadzenLabel Text="Менеджер"/>
+                </Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn Context="user" Filterable="false" Sortable="false" TextAlign="TextAlign.Left" Frozen="true">
+                <Template>
+                    @if (CurrentUserId == user.Id)
+                    {
+                        <RadzenCheckBox Disabled=true @bind-Value=@user.IsAdmin TValue="bool" />
+                    } else
+                    {
+                        <RadzenCheckBox Disabled=false @bind-Value=@user.IsAdmin TValue="bool" Change=@(async args => await ChangeAdminRole(user.Id, args)) />
+                    }
+                    <RadzenLabel Text="Адміністратор" />
+                </Template>
+
+            </RadzenDataGridColumn>
+        </Columns>
+    </RadzenDataGrid>
+}
+
+@code {
+    private int CurrentUserId { get; set; }
+
+    RadzenDataGrid<AppUserDTO> usersGrid;
+
+    IEnumerable<AppUserDTO> usersDto;
+    IEnumerable<AppUser> users;
+    private IEnumerable<AppUser> adminList;
+    private IEnumerable<AppUser> managerList;
+
+    private bool isLoading = true;
+
+    List<AppUserDTO> usersToUpdate = new List<AppUserDTO>();
+
+
+    void Reset()
+    {
+        usersToUpdate.Clear();
+    }
+
+    void Reset(AppUserDTO user)
+    {
+        usersToUpdate.Remove(user);
+    }
+
+    async Task EditRow(AppUserDTO user)
+    {
+        usersToUpdate.Add(user);
+        await usersGrid.EditRow(user);
+    }
+
+    async Task CancelEdit(AppUserDTO user)
+    {
+        Reset(user);
+
+        usersGrid.CancelEditRow(user);
+
+        user.Balance = (await _dbContext.Users.FirstOrDefaultAsync(u => u.Id == user.Id)).Balance;
+    }
+
+    async Task SaveRow(AppUserDTO userDto)
+    {
+        var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.Id == userDto.Id);
+        user.Balance = userDto.Balance;
+        await _dbContext.SaveChangesAsync();
+        usersGrid.CancelEditRow(userDto);
+        _loginBarNotify.CallRequestRefresh();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if(firstRender)
+        {
+            isLoading = true;
+            StateHasChanged();
+
+            adminList = await _userManager.GetUsersInRoleAsync(SD.Role_Admin);
+            managerList = await _userManager.GetUsersInRoleAsync(SD.Role_Manager);
+
+            users = _userManager.Users.ToList();
+            usersDto = users.Select(
+                (u) =>
+                {
+                    var userDTO = new AppUserDTO()
+                    {
+                        Id = u.Id,
+                        Name = u.Name,
+                        Email = u.Email,
+                        IsManager = managerList.Contains(u),
+                        IsAdmin = adminList.Contains(u),
+                        Balance = u.Balance
+                    };
+                    return userDTO;
+                }
+            );
+
+            var context = await _authState.GetAuthenticationStateAsync();
+
+            var idClaim = context.User.Claims.FirstOrDefault(c => c.Type.Contains("nameidentifier"));
+            try
+            {
+                CurrentUserId = int.Parse(idClaim.Value);
+            } catch(Exception ex)
+            {
+
+            }
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ChangeManagerRole(AppUserDTO userDTO , bool args)
+    {
+        if(args)
+        {
+            await _userManager.AddToRoleAsync(users.FirstOrDefault(u => u.Id == userDTO.Id), SD.Role_Manager);
+        } else
+        {
+            if (_dbContext.Parkings.Where(p => p.Owner_Id == userDTO.Id).Count() > 0)
+            {
+                userDTO.IsManager = true;
+                _notifications.Notify(new NotificationMessage
+                {
+                    Duration = 5000,
+                    Style="width: 500px;",
+                    Severity = NotificationSeverity.Warning, 
+                    Summary = "Неможливо виконати дію", 
+                    Detail = "Для зняття цього користувача з ролі менеджера необхідно відв'язати або видалити всі парковки, що йому належать.",
+                    Click = args => { RedirectToParkingsPage(userDTO.Name); }
+                });
+            } else
+            {
+                await _userManager.RemoveFromRoleAsync(users.FirstOrDefault(u => u.Id == userDTO.Id), SD.Role_Manager);
+            }
+        }
+    }
+
+    private void RedirectToParkingsPage(string managerName)
+    {
+        _navManager.NavigateTo($"/parkingList?managerName={managerName}");
+    }
+
+    private async Task ChangeAdminRole(int id, bool args)
+    {
+        if (args)
+        {
+            await _userManager.AddToRoleAsync(users.FirstOrDefault(u => u.Id == id), SD.Role_Admin);
+        }
+        else
+        {
+            await _userManager.RemoveFromRoleAsync(users.FirstOrDefault(u => u.Id == id), SD.Role_Admin);
+        }
+    }
+}
